@@ -1,0 +1,344 @@
+---
+title: "Dear_Colleagues_project2"
+author: "dear colleagues"
+date: "2026-03-02"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggstatsplot)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(nortest)
+library(rstatix)
+library(skimr)
+library(DescTools)
+library(sjPlot)
+library(labelled)
+library(psych)
+library(table1)
+library(tidyr)
+library(effectsize)
+library(lsr)
+
+ess <- read.csv("C:/Users/polin/Documents/ESS11e04_1.csv")
+
+ess$cntry <- as.factor(ess$cntry)
+```
+
+## Part I
+
+```{r}
+ess <- ess %>%
+  filter(cntry == 'IT') %>%
+  select(wkhct, health) %>%
+  filter(!wkhct %in% c(555, 666, 777, 888, 999))
+  
+ess <- ess %>%
+  mutate(wkhct = case_when(
+    wkhct >= 20 & wkhct <= 38 ~ "low hours",
+    wkhct >= 39 & wkhct <= 49 ~ "normal hours",
+    wkhct >= 50 ~ "high hours",
+    TRUE ~ NA_character_
+  ))
+
+ess <- ess %>%
+  mutate(health = factor(health,
+                               levels = c(1, 2, 3, 4, 5), 
+                               labels = c('good', 'good', 'fair', 'bad', 'bad')))
+
+str(ess)
+```
+
+```{r}
+plot_xtab(ess$wkhct, ess$health,
+          margin = 'row',
+          bar.pos = 'stack',
+          show.summary = T,
+          title = 'working hours and general health condition',
+          legend.title = 'health condition',
+          axis.titles = 'working hours')
+
+```
+
+The graph shows that there is approximately the same amount of each health group in every working hours category.
+
+H0: Working hours and health condition are unrelated.
+H1: The longer the working hours are the worse the health is. 
+
+```{r}
+contingency_table = table(ess$wkhct, ess$health)
+contingency_table
+chisq.test(contingency_table)
+```
+
+```{r}
+chisqt_result = chisq.test(contingency_table)
+chisqt_result$expected
+chisqt_result
+```
+
+Expected frequencies are greater than 5^ which means that the data is valid and could be used for the analysis and the observations are independent.
+There is no significant association between working hours/week and general health condition, based both on the graph and then the results of the chi-square test (p-value > 0.05). The differences in health condition in different working hours categories are insignificant and are likely accidental. 
+It is important to note that we grouped both variables. Working hours was not a categorical variable, so the groups were 'low hours', 'normal hours' and 'high hours'. The health category was already categorical, but we still had to group them: 'very good' and 'good' into 'good', 'fair' was left untouched and 'bad' and 'very bad' into 'poor'.
+
+## Part II
+
+
+```{r include=FALSE}
+ess <- read.csv("C:/Users/polin/Documents/ESS11e04_1.csv")
+```
+
+```{r}
+ess$cntry <- as.factor(ess$cntry)
+
+ess_italy <- ess %>%
+  filter(cntry == 'IT')%>%
+  select(netustm, agea, alcwknd, wkdcorga, tporgwk, health, cgtsmok, alcfreq, dosprt, eatveg, wkhtot, gndr, pdwrk) %>% rename(net_usage_mins = netustm, 
+         age = agea, 
+         alcohol_weekends_grams = alcwknd, 
+         work_org = wkdcorga, 
+         type_of_org = tporgwk, 
+         smoking = cgtsmok, 
+         drinking = alcfreq, 
+         sport_activity = dosprt, 
+         veggies = eatveg, 
+         total_work_per_week = wkhtot, 
+         gender = gndr, 
+         paid_work = pdwrk)
+
+ess_workers <- ess_italy%>%
+  filter(!health %in% c(7, 8, 9)) %>%
+  mutate(paid_work = factor(paid_work,
+                            levels = c(0, 1),
+                            labels = c("Inactive", "Active")))
+
+
+```
+
+
+```{r visualisation of relationship }
+ggplot(ess_workers, aes(x = paid_work, y = health, fill = paid_work)) +
+         geom_boxplot(outlier.colour = 'gray') + 
+         theme_minimal() + 
+         labs (title = "Relationship between labor participation and general health", x = "Participation in labor", y = "General health") + 
+         theme(legend.position = "none")
+```
+
+```{r  descriprive statistic}
+
+describeBy(ess_workers$health, group = ess_workers$paid_work)
+
+```
+
+
+### Statistical hypotheses
+
+Null hypothesis: There is no difference in mean subjective general health between active and inactive labor participants.
+
+Alternative hypothesis: Inactive labor participants have greater general health mean (which corresponds to poorer health condition) in comparison to active labor population.
+
+```{r Density plot}
+
+mu <- ess_workers%>%
+  group_by(paid_work)%>%
+  summarise(mean_health = mean(health, na.rm = T))
+
+ggplot(ess_workers, aes(health, color = paid_work, fill = paid_work)) + 
+  geom_density(position = 'identity', alpha = 0.5) +
+  geom_vline(data = mu, aes(xintercept = mean_health, color =  paid_work), linetype = 'dashed') +
+  labs(title = 'General health by labor activity histogram', x = "Health", y = "Frequency") + 
+  theme_classic() + 
+  theme(legend.position = "top")
+
+```
+
+```{r Shapiro test}
+
+shapiro.test(ess_workers$health[ess_workers$paid_work == 'Active'])
+
+shapiro.test(ess_workers$health[ess_workers$paid_work == 'Inactive'])
+
+```
+
+```{r Levene test}
+
+leveneTest(ess_workers$health ~ ess_workers$paid_work)
+
+```
+
+
+```{r Wilcoxon}
+
+wilcox.test(health ~ paid_work, data = ess_workers, alternative = 'greater')
+
+```
+
+
+```{r Effect size}
+
+cohens_d(ess_workers$health, ess_workers$paid_work, na.rm = T)
+
+```
+
+
+### Interpretation
+For our T-test we chose involvement in paid work, which we consider an indicator of participation in workforce, as a binary variable and general health condition as a quasi-interval variable, where '1' corresponds to 'Very good' and '5' to 'Very bad'. The choice of the research hypothesis, which states that inactive labor force has poorer general health condition in comparison with active working population, is based on the research of Waddell and Burton (2006). According to their findings, work is generally good for one's health and well-being, as well as the unemployment is strongly linked to the poorer health state (not just due to the pre-existing health conditions, but this is rather a casual relationship). 
+In order to run a correct type of test, we checked 2 assumptions, namely normality of data distribution and equality of variance. We consider our observations to be independent since the method of data collection in ESS does not imply paired samples. As for data distribution, in descriptive statistic we looked at skewness and kurtosis, which did not show much deviation from norm. We also looked at distribution through density plot. However, it appeared to be difficult to assess the normality of distribution visually because of the quasi-interval nature of health variable.Then, we used Shapiro-Wilk test, which indicated non-normal distribution since for both groups p-value was significant (less than 0.05). However, we cannot rely much on this test as it is sensitive when working with large samples like in our case. We could also assess the normality through interquartile ranges in boxplots: in our case, for inactive workforce participators Q3 coincides with Q2 and for active workforce group Q1 coincides with Q2, which imply that the data distribution is skewed. Thus, we decided to consider the distribution not normal and run a Wilcoxon's rank test. As for equality of variances, Levene's test results showed that p-value is statistically significant, and the variances are not equal. By the results of non-parametric t-test we can conclude that the means between workforce groups are not equal since the p-value is significant. In order to measure the effect size, we found Cohen's d coeffcient, which showed medium effect (0.68).
+Summarizing the findings of our T-test, Italian residents actively participating in workforce report better health condition than those who are not part of workforce.
+
+## Part III
+
+```{r include=FALSE}
+ess <- read.csv("C:/Users/polin/Documents/ESS11e04_1.csv")
+```
+
+In this part of the project we are going to use an **ANOVA-family test** to explore factor prediction on a continuous variable related to our research question.
+
+### Data Upload and Filtering
+
+For this part of the project we used 2 variables: total number of working hours per week split into 4 groups (part-time job, full-time job, mild overtime and severe overtime) as a factor and score for the state of health services in Italy as an output continuous variable. In the code below we select the variables, clean them from NAs, rename them and split the number of working hours per week into groups (the thresholds are justified conventionally...).  
+
+The **research hypothesis** in this case is that for the group of people experiencing severe overtime work, the scores for the state of health services in Italy will be lower than for other categories. We based our hypothesis on the Sparks, Cooper, Fried, and Shirom meta-analysis (1997). According to their findings, there is a small but significant positive relationship between long working hours and poorer health outcomes. 
+
+The **statistical hypotheses** are:
+
+H0 - the mean scores for the state of health services between group with different working hours are equal.
+
+H1 - the group with severe overtime has lower mean score for the state of health services than other groups. 
+
+**P.S.** We did our best to find the most suitable variables from the dataset which would fit our RQ, but these ones are the best we came up with, since there were no better variables connected to health which could had been picked as continuous ones. Moreover, the link between working hours and health outcomes was stronger for psychological symptoms (fatigue, stress, etc.) than for physiological ones *(Sparks et al., 1997)* which supports our choice of self-reported "state of health services".   
+
+```{r}
+ess <- ess %>%
+  filter(cntry == 'IT')
+
+ess$isco08 <- as.factor(ess$isco08)
+
+ess_italy <- ess %>%
+  select(health, 
+         wkhtot, 
+         isco08,
+         stfhlth) %>%
+  filter(!health %in% c(7, 8, 9),
+         !wkhtot %in% c(666, 777, 888, 999),
+         isco08 %in% c(3313, 5223, 5221, 2330, 4110) & 
+           !isco08 %in% c(66666, 77777, 88888, 99999),
+         !stfhlth %in% c(77,88,99)) %>%
+  rename(total_work_per_week = wkhtot,
+         occupation = isco08,
+         state_of_health = stfhlth)
+
+ess_italy$hours_fac <- NA
+
+ess_italy$hours_fac[ess_italy$total_work_per_week >= 0 & ess_italy$total_work_per_week <= 20] <- "Part-time job"
+ess_italy$hours_fac[ess_italy$total_work_per_week >= 21 & ess_italy$total_work_per_week <= 40] <- "Full-time job"
+ess_italy$hours_fac[ess_italy$total_work_per_week >= 41 & ess_italy$total_work_per_week <= 50] <- "Mild overtime"
+ess_italy$hours_fac[ess_italy$total_work_per_week >= 51] <- "Severe overtime"
+```
+
+### Visualisation of Data & Assumptions Check
+
+Here we visualized the categorical and numeric data with a bar plot and a histogram respectively, and then utilized box plot to demonstrate variances between groups. 
+
+```{r}
+ggplot(ess_italy, aes(hours_fac))+
+  geom_bar(fill = "#cfcbb6",
+           color = 'black')+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 40, hjust = 0.9))+
+  labs(title = "Working Hours' Groups Sizes",
+       x = "Working Hours Groups",
+       y = "Size")
+```
+
+The groups' sizes appear to be unequal, where full-time job dominates significantly across all of the groups. The second largest group consists of people working with a mild overtime (1-9 hours above the standard per week) and is twice as bigger as the group of people having a part-time job. 
+
+```{r}
+ess_italy %>%
+  ggplot(aes(state_of_health))+
+  geom_histogram(binwidth = 1, 
+                 fill = "#cfcbb6", 
+                 colour = "black")+
+  labs(x = "Scores for the State of Health Sevices in Italy",
+       y = "Frequency",
+       title = "Distribution of Scores for State of Health Services")
+```
+
+We did not clean the variable from the outliers as it is **quasi-interval** and observed its distribution which appears to be not normal. It is rather skewed to the right, indicating that an overall score for the state of health services in Italy is leaning to average and slightly above average.
+
+
+```{r}
+ggplot(ess_italy, aes(hours_fac, state_of_health))+
+  geom_boxplot()+
+  labs(x = "Workers' Categories by Working Hours per Week",
+       y = "Scores for State of Health Services",
+       title = "Variances of Health Services Scores between Working Hours Groups ")
+```
+
+The box plots show that the medians for full-time job and mild overtime groups are equal, but they differ from both part-time job and severe overtime groups. the former groups differ between each others in medians as well. The interquantile range (the size of the boxes) also varies between groups, which may indicate heterogeneous variances. 
+
+```{r}
+aov.model <- aov(state_of_health ~ hours_fac, data = ess_italy)
+residuals <- residuals(aov.model)
+ggplot(data.frame(residuals), aes(residuals))+
+  geom_density(fill = 'blue')+
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(residuals), 
+                            sd = sd(residuals)), 
+                color = 'red')+
+  labs(x = "Residuals' Distribution",
+       y = "",
+       title = "Distribution of Residuals compared to Normal Distribution")
+```
+
+
+```{r}
+lillie.test(ess_italy$state_of_health)
+```
+
+
+```{r}
+leveneTest(ess_italy$state_of_health ~ ess_italy$hours_fac)
+```
+
+The statistical methods show the following results:
+
+The **distribution of residuals** appears to be not normal, according to the plot. 
+
+**Kolmogorov-Smirnov test** delivers the p-value less than the significance level of 0.05 (< 2.2e-16), which allows us to reject the null hypothesis of the test about the normality of data.
+
+**Levene's test** delivers the p-value more than the significance level of 0.05 (= 0.9619), which makes it impossible to reject the null hypothesis about homogeneity of data variances. It means that the variances are homogeneous. 
+
+**Independence** is assumed as every respondent in ESS11 appears once and categories for working hours do not intersect. 
+
+Given that assumptions for standard one-way ANOVA test *are violated*, and taking into account homogeneity of variances, we decided to utilize **Kruskal-Wallis test** for the hypotheses. 
+
+### Kruskal-Wallis test & Inferences
+
+```{r}
+kruskal.test(state_of_health ~ hours_fac, data = ess_italy)
+```
+
+
+
+
+**Methodological explanation and interpretation**:
+
+Kruskal-Wallis test reveals p-value **more** than significance level 0.05 (= 0.5189), which means that the null hypothesis is accepted: there is no statistical difference in health state among groups with different working hours. In other words, the **distribution of all groups is equal**. 
+
+**Substantially**, despite our expectations, the group of people experiencing severe overtime work didn't show lower scores for the state of health services in Italy. It may mean that the working hours per week is not a determining factor for reflecting the state of health. 
+
+We **did not conduct post-hoc test** and **did not calculate effect size**, because initially Kruskal-Wallis test was not statistically significant. In this case, conducting *post-hoc* tests is statistically incorrect and may increase Type I error (finding significance when it does not exist.) *Effect size* for Kruskal-Wallis in given conditions (p>0.05) is close to the 0 and not informative. 
+
+Additionally, we made a plot as a summary for our findings for ANOVA. According to the plot, we can clearly see that there are no any significant paired connections. It is also visible that the medians of the groups are quite equal (4, 5 and 6 respectively.)
+
+
+### Conclusions
+
+In this project we investigated relationships between work and general health state among Italian respondents, using data from the ESS11. Through several statistical methods (Chi-square test, Wilcoxon's rank test and Kruskal-Wallis test) we checked how different work-related factors (working hours categories, labor force participation, working hours as a factor) relate to various health state indicators. Even though the results of Chi-square and Kruskal-Wallis tests have not supported our research hypotheses in part I (indicating that working hours per week and general health condition are independent in this sample) and part III (we failed to reject the null hypothesis, so in this sample working hours do not significantly affect how Italians rate their health services), we still have succeed to statistically prove the part II research hypothesis that inactive labor participants report poorer health compared to active workers. This also aligns with existing literature we have encountered, suggesting that unemployment is associated with worse general health state.
